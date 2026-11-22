@@ -201,6 +201,25 @@
     gap: 10px;
 }
 
+.settings-divider {
+    border-top: 1px solid #2d2d44;
+    margin: 12px 0;
+}
+
+.settings h4 {
+    margin: 8px 0 4px;
+    font-size: 0.75rem;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.permission-status {
+    font-size: 0.7rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
 .stats {
     display: flex;
     justify-content: space-between;

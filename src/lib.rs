@@ -73,6 +73,81 @@ fn Popup() -> impl IntoView {
     let (is_dragging, set_is_dragging) = signal(false);
     let (toml_content, set_toml_content) = signal(String::new());
 
+    #[derive(Clone, Default)]
+    struct PermissionsState {
+        downloads: bool,
+        scripting: bool,
+        downloads_pending: bool,
+        scripting_pending: bool,
+    }
+    let (permissions_state, set_permissions_state) = signal(PermissionsState::default());
+
+    let check_permissions = move || {
+        spawn_local(async move {
+            let window = window().unwrap();
+            let chrome = window.unchecked_ref::<js_sys::Object>();
+            if let Ok(chrome_obj) = Reflect::get(&chrome, &"chrome".into()) {
+                if let Ok(permissions) = Reflect::get(&chrome_obj, &"permissions".into()) {
+                    if let Ok(contains_fn) = Reflect::get(&permissions, &"contains".into()) {
+                        if let Some(contains_fn) = contains_fn.dyn_ref::<js_sys::Function>() {
+                            let check = async move |perm: &str| -> bool {
+                                let perm_obj = js_sys::Object::new();
+                                Reflect::set(&perm_obj, &"permissions".into(), &js_sys::Array::of1(&perm.into())).unwrap();
+                                if let Ok(promise) = contains_fn.call1(&permissions, &perm_obj) {
+                                    if let Some(promise) = promise.dyn_ref::<Promise>() {
+                                        if let Ok(result) = wasm_bindgen_futures::JsFuture::from(promise.clone()).await {
+                                            return result.as_bool().unwrap_or(false);
+                                        }
+                                    }
+                                }
+                                false
+                            };
+                            let downloads = check("downloads").await;
+                            let scripting = check("scripting").await;
+                            set_permissions_state.set(PermissionsState {
+                                downloads,
+                                scripting,
+                                downloads_pending: false,
+                                scripting_pending: false,
+                            });
+                        }
+                    }
+                }
+            }
+        });
+    };
+
+    let toggle_permission = move |perm: String, granted: bool| {
+        set_permissions_state.update(|state| {
+            if perm == "downloads" {
+                state.downloads_pending = true;
+            } else if perm == "scripting" {
+                state.scripting_pending = true;
+            }
+        });
+
+        spawn_local(async move {
+            let window = window().unwrap();
+            let chrome = window.unchecked_ref::<js_sys::Object>();
+            if let Ok(chrome_obj) = Reflect::get(&chrome, &"chrome".into()) {
+                if let Ok(permissions) = Reflect::get(&chrome_obj, &"chrome".into()) {
+                    let method = if granted { "request" } else { "remove" };
+                    if let Ok(fn_obj) = Reflect::get(&permissions, &method.into()) {
+                        if let Some(fn_ref) = fn_obj.dyn_ref::<js_sys::Function>() {
+                            let perm_obj = js_sys::Object::new();
+                            Reflect::set(&perm_obj, &"permissions".into(), &js_sys::Array::of1(&perm.into())).unwrap();
+                            let _ = fn_ref.call1(&permissions, &perm_obj);
+                        }
+                    }
+                }
+            }
+            // Re-check after a short delay
+            let _ = Timeout::new(500, move || {
+                check_permissions();
+            });
+        });
+    };
+
     let update_toml_preview = move |crates: Vec<CrateInfo>, filename: String| {
         let content = generate_toml(&crates, &filename);
         set_toml_content.set(content);
@@ -434,6 +509,7 @@ fn Popup() -> impl IntoView {
     Effect::new(move |_| {
         load_saved_crates();
         get_current_crate_info();
+        check_permissions();
         
         let _interval_handle = Timeout::new(2000, move || {
             if let Some(doc) = window().and_then(|w| w.document()) {
@@ -552,34 +628,90 @@ fn Popup() -> impl IntoView {
                             {move || save_btn_text.get()}
                         </button>
 
-                        <div class="settings">
-                            <h3>"Settings"</h3>
+<div class="settings">
+    <h3>"Settings"</h3>
 
-                            <div class="setting-item">
-                                <div class="setting-label">
-                                    <span>"Auto-save new crates"</span>
-                                    <input
-                                        type="checkbox"
-                                        checked=move || settings.get().auto_save
-                                        on:change=move |ev| toggle_auto_save(event_target_checked(&ev))
-                                    />
-                                </div>
-                            </div>
+    <div class="setting-item">
+        <div class="setting-label">
+            <span>"Auto-save new crates"</span>
+            <input
+                type="checkbox"
+                checked=move || settings.get().auto_save
+                on:change=move |ev| toggle_auto_save(event_target_checked(&ev))
+            />
+        </div>
+    </div>
 
-                            <div class="setting-item">
-                                <div class="setting-label">
-                                    <span>"Export format"</span>
-                                </div>
-                                <select
-                                    prop:value=move || settings.get().save_format.clone()
-                                    on:change=change_format
-                                >
-                                    <option value="toml">"TOML (Cargo.toml)"</option>
-                                    <option value="json">"JSON"</option>
-                                    <option value="text">"Plain Text"</option>
-                                </select>
-                            </div>
-                        </div>
+    <div class="setting-item">
+        <div class="setting-label">
+            <span>"Export format"</span>
+        </div>
+        <select
+            prop:value=move || settings.get().save_format.clone()
+            on:change=change_format
+        >
+            <option value="toml">"TOML (Cargo.toml)"</option>
+            <option value="json">"JSON"</option>
+            <option value="text">"Plain Text"</option>
+        </select>
+    </div>
+
+    <div class="setting-item">
+        <div class="setting-label">
+            <span>"Export filename"</span>
+        </div>
+        <input
+            type="text"
+            class="filename-input"
+            prop:value=move || settings.get().export_filename.clone()
+            on:change=change_export_filename
+            placeholder="Cargo.toml"
+        />
+    </div>
+
+    <div class="settings-divider"></div>
+
+    <h4>"Permissions"</h4>
+
+    <div class="setting-item">
+        <div class="setting-label">
+            <span>"Downloads (optional)"</span>
+            <input
+                type="checkbox"
+                checked=move || permissions_state.get().downloads
+                on:change=move |ev| toggle_permission("downloads".to_string(), event_target_checked(&ev))
+                disabled=move || permissions_state.get().downloads_pending
+            />
+        </div>
+        <span class="permission-status" 
+            style=move || if permissions_state.get().downloads { "color: #4caf50;" } else { "color: #ff9800;" }>
+            {move || if permissions_state.get().downloads { "Granted" } else { "Not granted" }}
+        </span>
+    </div>
+
+    <div class="setting-item">
+        <div class="setting-label">
+            <span>"Scripting (optional)"</span>
+            <input
+                type="checkbox"
+                checked=move || permissions_state.get().scripting
+                on:change=move |ev| toggle_permission("scripting".to_string(), event_target_checked(&ev))
+                disabled=move || permissions_state.get().scripting_pending
+            />
+        </div>
+        <span class="permission-status" 
+            style=move || if permissions_state.get().scripting { "color: #4caf50;" } else { "color: #ff9800;" }>
+            {move || if permissions_state.get().scripting { "Granted" } else { "Not granted" }}
+        </span>
+    </div>
+
+    <div class="setting-item">
+        <div class="setting-label">
+            <span>"Host access: crates.io"</span>
+        </div>
+        <span class="permission-status" style="color: #4caf50;">"Granted (host_permissions)"</span>
+    </div>
+</div>
 
                         <div class="button-group">
                             <button class="btn secondary" on:click=move |_| export_all_crates()>
