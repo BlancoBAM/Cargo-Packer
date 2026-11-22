@@ -19,6 +19,7 @@
 [![Leptos](https://img.shields.io/badge/Leptos-0.8-ff6b6b)](https://leptos.dev)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Crates.io](https://shieldcn.dev/crates/Cargo-Packer.svg?variant=outline&size=default&theme=orange&font=geist&labelGap=3)](https://crates.io/crates/Cargo-Packer)
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Q3Z12B3RSC)
 
 > **Save crates.io pages to local Cargo.toml files** — A modern, cross-browser extension built with Rust/WASM via Oxichrome. Features live TOML preview, File System Access API export, deduplication, and MV3 compliance.
 
