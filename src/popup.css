@@ -347,6 +347,34 @@
     border-color: #ba68c8;
 }
 
+.export-type-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.export-type-selector label {
+    font-size: 0.8rem;
+    color: #aaa;
+    white-space: nowrap;
+}
+
+.export-type-selector select {
+    background: #1a1a2e;
+    border: 1px solid #3d3d5c;
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: #ddd;
+    font-size: 0.8rem;
+    font-family: inherit;
+    min-width: 180px;
+}
+
+.export-type-selector select:focus {
+    outline: none;
+    border-color: #ba68c8;
+}
+
 .toml-preview-container {
     flex: 1;
     min-height: 200px;

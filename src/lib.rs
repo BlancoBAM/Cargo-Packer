@@ -6,6 +6,7 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::{Blob, BlobPropertyBag, window, Url, FileSystemFileHandle};
 use js_sys::{Array, Object, Reflect, Promise, Uint8Array};
 use gloo_timers::callback::Timeout;
+use gloo_net::http::Request as GlooRequest;
 use oxichrome::{log, storage, tabs};
 use regex::Regex;
 
@@ -18,6 +19,41 @@ struct CrateInfo {
     updated: String,
     url: String,
     timestamp: String,
+    // Enhanced metadata from API
+    repository: Option<String>,
+    documentation: Option<String>,
+    homepage: Option<String>,
+    license: Option<String>,
+    downloads: Option<u64>,
+    recent_downloads: Option<u64>,
+    categories: Vec<String>,
+    keywords: Vec<String>,
+    rust_version: Option<String>,
+    edition: Option<String>,
+    crate_size: Option<u64>,
+    // Dependency graph
+    dependency_graph: Option<DependencyGraph>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, Hash)]
+struct DependencyGraph {
+    nodes: Vec<DependencyNode>,
+    edges: Vec<DependencyEdge>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, Hash)]
+struct DependencyNode {
+    id: String,
+    name: String,
+    version: String,
+    kind: String, // "normal", "dev", "build"
+    optional: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, Hash)]
+struct DependencyEdge {
+    from: String,
+    to: String,
 }
 
 impl CrateInfo {
@@ -50,6 +86,212 @@ struct SavedCratesData {
 }
 
 const STORAGE_KEY: &str = "cargo_packer_data";
+const CRATES_IO_API: &str = "https://crates.io/api/v1";
+const USER_AGENT: &str = "Cargo-Packer/1.0 (https://github.com/BlancoBAM/Cargo-Packer)";
+
+// API response types
+#[derive(Deserialize, Debug)]
+struct CrateResponse {
+    #[serde(rename = "crate")]
+    crate_data: ApiCrate,
+    versions: Option<Vec<ApiVersion>>,
+}
+
+#[derive(Deserialize, Debug)]
+struct VersionResponse {
+    version: ApiVersion,
+}
+
+#[derive(Deserialize, Debug)]
+struct DependenciesResponse {
+    dependencies: Vec<ApiDependency>,
+}
+
+#[derive(Deserialize, Debug)]
+struct ApiCrate {
+    id: String,
+    name: String,
+    description: Option<String>,
+    documentation: Option<String>,
+    repository: Option<String>,
+    homepage: Option<String>,
+    downloads: u64,
+    recent_downloads: u64,
+    max_stable_version: String,
+    categories: Vec<ApiCategory>,
+    keywords: Vec<ApiKeyword>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct ApiVersion {
+    id: String,
+    crate_id: String,
+    num: String,
+    downloads: u64,
+    yanked: bool,
+    license: Option<String>,
+    rust_version: Option<String>,
+    edition: Option<String>,
+    crate_size: Option<u64>,
+    features: serde_json::Value,
+    published_at: String,
+    updated_at: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct ApiDependency {
+    crate_id: String,
+    name: String,
+    req: String,
+    kind: Option<String>,
+    optional: bool,
+    default_features: bool,
+    features: Vec<String>,
+    target: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+struct ApiCategory {
+    category: String,
+    slug: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct ApiKeyword {
+    keyword: String,
+}
+
+// Fetch crate metadata from crates.io API
+async fn fetch_crate_metadata(name: &str, version: Option<&str>) -> Result<CrateInfo, String> {
+    let version_path = version.map(|v| format!("/{}", v)).unwrap_or_default();
+    let url = format!("{}/crates/{}{}", CRATES_IO_API, name, version_path);
+    
+    let response = GlooRequest::get(&url)
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+    
+    if !response.ok() {
+        return Err(format!("API error: {}", response.status()));
+    }
+    
+    let crate_resp: CrateResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("JSON parse failed: {}", e))?;
+    
+    let api_crate = crate_resp.crate_data;
+    let versions = crate_resp.versions.unwrap_or_default();
+    
+    // Determine which version to use
+    let target_version = if let Some(v) = version {
+        versions.iter().find(|ver| ver.num == v).cloned()
+    } else {
+        versions.iter().find(|ver| ver.num == api_crate.max_stable_version).cloned()
+    }.unwrap_or_else(|| versions.first().cloned().unwrap_or_else(|| ApiVersion {
+        id: String::new(),
+        crate_id: String::new(),
+        num: "unknown".to_string(),
+        downloads: 0,
+        yanked: false,
+        license: None,
+        rust_version: None,
+        edition: None,
+        crate_size: None,
+        features: serde_json::Value::Null,
+        published_at: String::new(),
+        updated_at: String::new(),
+    }));
+    
+    // Fetch dependencies for this version
+    let deps_url = format!("{}/crates/{}/{}/dependencies", CRATES_IO_API, name, target_version.num);
+    let deps_response = GlooRequest::get(&deps_url)
+        .header("User-Agent", USER_AGENT)
+        .send()
+        .await
+        .map_err(|e| format!("Deps request failed: {}", e))?;
+    
+    let dependencies = if deps_response.ok() {
+        let deps_resp: DependenciesResponse = deps_response
+            .json()
+            .await
+            .map_err(|e| format!("Deps JSON parse failed: {}", e))?;
+        deps_resp.dependencies
+    } else {
+        vec![]
+    };
+    
+    // Build dependency graph
+    let (dep_graph, dep_count) = build_dependency_graph(&dependencies);
+    
+    let categories = api_crate.categories.iter().map(|c| c.slug.clone()).collect();
+    let keywords = api_crate.keywords.iter().map(|k| k.keyword.clone()).collect();
+    
+    Ok(CrateInfo {
+        name: api_crate.name.clone(),
+        version: target_version.num.clone(),
+        description: api_crate.description.unwrap_or_default(),
+        dependencies: dep_count.to_string(),
+        updated: target_version.updated_at.split('T').next().unwrap_or("").to_string(),
+        url: format!("https://crates.io/crates/{}/{}", api_crate.name, target_version.num),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        repository: api_crate.repository,
+        documentation: api_crate.documentation,
+        homepage: api_crate.homepage,
+        license: target_version.license,
+        downloads: Some(api_crate.downloads),
+        recent_downloads: Some(api_crate.recent_downloads),
+        categories,
+        keywords,
+        rust_version: target_version.rust_version,
+        edition: target_version.edition,
+        crate_size: target_version.crate_size,
+        dependency_graph: Some(dep_graph),
+    })
+}
+
+fn build_dependency_graph(dependencies: &[ApiDependency]) -> (DependencyGraph, usize) {
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    
+    // Add root node (will be filled by caller)
+    nodes.push(DependencyNode {
+        id: "root".to_string(),
+        name: String::new(),
+        version: String::new(),
+        kind: "root".to_string(),
+        optional: false,
+    });
+    
+    for dep in dependencies {
+        let node_id = format!("{}@{}", dep.name, dep.req);
+        if !seen.contains(&node_id) {
+            seen.insert(node_id.clone());
+            nodes.push(DependencyNode {
+                id: node_id.clone(),
+                name: dep.name.clone(),
+                version: dep.req.clone(),
+                kind: dep.kind.clone().unwrap_or_else(|| "normal".to_string()),
+                optional: dep.optional,
+            });
+        }
+        edges.push(DependencyEdge {
+            from: "root".to_string(),
+            to: node_id,
+        });
+    }
+    
+    (DependencyGraph { nodes, edges }, dependencies.len())
+}
+
+// Extract version from URL if present (e.g., /crates/serde/1.0.0)
+fn extract_version_from_url(url: &str) -> Option<String> {
+    // Pattern: crates.io/crates/name/version
+    let re = Regex::new(r"crates\.io/crates/[^/]+/([^/]+)(?:/|$)").ok()?;
+    re.captures(url).and_then(|c| c.get(1)).map(|m| m.as_str().to_string())
+}
 
 #[oxichrome::extension(
     name = "Crates Packer",
@@ -72,6 +314,7 @@ fn Popup() -> impl IntoView {
     let (drag_start, set_drag_start) = signal(None::<f64>);
     let (is_dragging, set_is_dragging) = signal(false);
     let (toml_content, set_toml_content) = signal(String::new());
+    let (export_type, set_export_type) = signal(String::from("crates")); // "crates" or "dependency-graph"
 
     #[derive(Clone, Default)]
     struct PermissionsState {
@@ -355,6 +598,7 @@ fn Popup() -> impl IntoView {
     let export_all_crates = move || {
         let format = settings.get().save_format.clone();
         let filename = settings.get().export_filename.clone();
+        let exp_type = export_type.get();
         
         spawn_local(async move {
             match storage::get::<SavedCratesData>(STORAGE_KEY).await {
@@ -365,19 +609,23 @@ fn Popup() -> impl IntoView {
                         return;
                     }
                     
-                    let content = match format.as_str() {
-                        "toml" => generate_toml(&data.crates, &filename),
-                        "json" => generate_json(&data.crates),
-                        _ => generate_text(&data.crates),
+                    let (content, fname) = match (exp_type.as_str(), format.as_str()) {
+                        ("dependency-graph", "toml") => (generate_dependency_graph_toml(&data.crates), "dependency-graph.toml".to_string()),
+                        ("dependency-graph", "json") => (generate_dependency_graph_json(&data.crates), "dependency-graph.json".to_string()),
+                        ("dependency-graph", "dot") => (generate_dependency_graph_dot(&data.crates), "dependency-graph.dot".to_string()),
+                        ("crates", "toml") => (generate_toml(&data.crates, &filename), filename),
+                        ("crates", "json") => (generate_json(&data.crates), "crates.json".to_string()),
+                        ("crates", _) => (generate_text(&data.crates), "crates.txt".to_string()),
+                        _ => (generate_toml(&data.crates, &filename), filename),
                     };
                     
-                    let saved = try_save_with_picker(&content, &filename, &format).await;
+                    let saved = try_save_with_picker(&content, &fname, &format).await;
                     
                     if !saved {
-                        download_file(&content, &filename).await;
-                        set_status.set(format!("Exported {} crates to Downloads/{}", data.crates.len(), filename));
+                        download_file(&content, &fname).await;
+                        set_status.set(format!("Exported {} crates to Downloads/{}", data.crates.len(), fname));
                     } else {
-                        set_status.set(format!("Exported {} crates to {}", data.crates.len(), filename));
+                        set_status.set(format!("Exported {} crates to {}", data.crates.len(), fname));
                     }
                     set_status_type.set("success".to_string());
                 }
@@ -749,21 +997,31 @@ fn Popup() -> impl IntoView {
                             <div class="subtitle">"Live preview of your dependencies"</div>
                         </div>
 
-                        <div class="toml-toolbar">
-                            <div class="filename-input-group">
-                                <label>"Filename: "</label>
-                                <input
-                                    type="text"
-                                    class="filename-input"
-                                    prop:value=move || settings.get().export_filename.clone()
-                                    on:change=change_export_filename
-                                    placeholder="Cargo.toml"
-                                />
-                            </div>
-                            <button class="btn secondary" on:click=move |_| export_all_crates()>
-                                "Export to File..."
-                            </button>
-                        </div>
+<div class="toml-toolbar">
+    <div class="filename-input-group">
+        <label>"Filename: "</label>
+        <input
+            type="text"
+            class="filename-input"
+            prop:value=move || settings.get().export_filename.clone()
+            on:change=change_export_filename
+            placeholder="Cargo.toml"
+        />
+    </div>
+    <div class="export-type-selector">
+        <label>"Export: "</label>
+        <select
+            prop:value=move || export_type.get()
+            on:change=move |ev| set_export_type.set(event_target_value(&ev))
+        >
+            <option value="crates">"Crates (Cargo.toml)"</option>
+            <option value="dependency-graph">"Dependency Graph"</option>
+        </select>
+    </div>
+    <button class="btn secondary" on:click=move |_| export_all_crates()>
+        "Export to File..."
+    </button>
+</div>
 
                         <div class="toml-preview-container">
                             <div class="carbon-mock">
@@ -815,16 +1073,153 @@ fn generate_toml(crates: &[CrateInfo], filename: &str) -> String {
     toml.push_str("version = \"0.1.0\"\n");
     toml.push_str("edition = \"2021\"\n\n");
     
-    toml.push_str("[dependencies]\n");
-    
+    // Add metadata comments for each crate
     for crate_info in crates {
+        toml.push_str(&format!("# === {} v{} ===\n", crate_info.name, crate_info.version));
         if !crate_info.description.is_empty() {
-            toml.push_str(&format!("# {}\n", crate_info.description));
+            for line in crate_info.description.lines() {
+                toml.push_str(&format!("# {}\n", line));
+            }
         }
-        toml.push_str(&format!("{} = \"{}\"\n", crate_info.name, crate_info.version));
+        if let Some(repo) = &crate_info.repository {
+            toml.push_str(&format!("# Repository: {}\n", repo));
+        }
+        if let Some(doc) = &crate_info.documentation {
+            toml.push_str(&format!("# Documentation: {}\n", doc));
+        }
+        if let Some(license) = &crate_info.license {
+            toml.push_str(&format!("# License: {}\n", license));
+        }
+        if let Some(dl) = crate_info.downloads {
+            toml.push_str(&format!("# Downloads: {}\n", dl));
+        }
+        if !crate_info.categories.is_empty() {
+            toml.push_str(&format!("# Categories: {}\n", crate_info.categories.join(", ")));
+        }
+        if !crate_info.keywords.is_empty() {
+            toml.push_str(&format!("# Keywords: {}\n", crate_info.keywords.join(", ")));
+        }
+        if let Some(rust_ver) = &crate_info.rust_version {
+            toml.push_str(&format!("# Rust version: {}\n", rust_ver));
+        }
+        if let Some(edition) = &crate_info.edition {
+            toml.push_str(&format!("# Edition: {}\n", edition));
+        }
+        toml.push_str(&format!("{} = \"{}\"\n\n", crate_info.name, crate_info.version));
     }
     
     format_toml(&toml)
+}
+
+fn generate_dependency_graph_toml(crates: &[CrateInfo]) -> String {
+    let mut toml = String::new();
+    
+    toml.push_str("# Dependency Graph - Generated by Cargo Packer\n");
+    toml.push_str(&format!("# Generated: {}\n\n", chrono::Utc::now().to_rfc3339()));
+    
+    toml.push_str("[workspace]\n");
+    toml.push_str("members = [\n");
+    for crate_info in crates {
+        toml.push_str(&format!("    \"{}\",\n", crate_info.name));
+    }
+    toml.push_str("]\n\n");
+    
+    toml.push_str("[workspace.dependencies]\n");
+    for crate_info in crates {
+        let mut dep_spec = format!("\"{}\"", crate_info.version);
+        if let Some(rust_ver) = &crate_info.rust_version {
+            dep_spec.push_str(&format!(", rust-version = \"{}\"", rust_ver));
+        }
+        toml.push_str(&format!("{} = {}\n", crate_info.name, dep_spec));
+    }
+    toml.push_str("\n");
+    
+    // Add dependency graph edges as comments
+    for crate_info in crates {
+        if let Some(graph) = &crate_info.dependency_graph {
+            if !graph.edges.is_empty() {
+                toml.push_str(&format!("# {} dependencies:\n", crate_info.name));
+                for edge in &graph.edges {
+                    if edge.from != "root" {
+                        toml.push_str(&format!("#   {} -> {}\n", edge.from, edge.to));
+                    }
+                }
+                toml.push_str("\n");
+            }
+        }
+    }
+    
+    format_toml(&toml)
+}
+
+fn generate_dependency_graph_json(crates: &[CrateInfo]) -> String {
+    use serde_json::json;
+    
+    let mut all_nodes = Vec::new();
+    let mut all_edges = Vec::new();
+    
+    for crate_info in crates {
+        if let Some(graph) = &crate_info.dependency_graph {
+            for node in &graph.nodes {
+                if node.id != "root" {
+                    all_nodes.push(json!({
+                        "id": node.id,
+                        "name": node.name,
+                        "version": node.version,
+                        "kind": node.kind,
+                        "optional": node.optional,
+                        "crate": crate_info.name,
+                    }));
+                }
+            }
+            for edge in &graph.edges {
+                if edge.from != "root" {
+                    all_edges.push(json!({
+                        "from": edge.from,
+                        "to": edge.to,
+                    }));
+                }
+            }
+        }
+    }
+    
+    json!({
+        "metadata": {
+            "generated": chrono::Utc::now().to_rfc3339(),
+            "crates_count": crates.len(),
+            "source": "Cargo Packer"
+        },
+        "nodes": all_nodes,
+        "edges": all_edges,
+    }).to_string()
+}
+
+fn generate_dependency_graph_dot(crates: &[CrateInfo]) -> String {
+    let mut dot = String::new();
+    
+    dot.push_str("digraph dependencies {\n");
+    dot.push_str("  rankdir=LR;\n");
+    dot.push_str("  node [shape=box, style=filled, fillcolor=lightblue];\n\n");
+    
+    for crate_info in crates {
+        if let Some(graph) = &crate_info.dependency_graph {
+            for node in &graph.nodes {
+                if node.id != "root" {
+                    let label = format!("{}@{}", node.name, node.version);
+                    let color = if node.optional { "lightyellow" } else { "lightblue" };
+                    dot.push_str(&format!("  \"{}\" [label=\"{}\", fillcolor=\"{}\"];\n", node.id, label, color));
+                }
+            }
+            for edge in &graph.edges {
+                if edge.from != "root" {
+                    dot.push_str(&format!("  \"{}\" -> \"{}\";\n", edge.from, edge.to));
+                }
+            }
+        }
+    }
+    
+    dot.push_str("}\n");
+    dot
 }
 
 fn format_toml(toml: &str) -> String {
@@ -1004,16 +1399,20 @@ Some("getSavedCrates") => {
 }
 Some("exportCrates") => {
     let format = msg.get("format").and_then(|v| v.as_str()).unwrap_or("toml");
+    let export_type = msg.get("exportType").and_then(|v| v.as_str()).unwrap_or("crates");
     match storage::get::<SavedCratesData>(STORAGE_KEY).await {
         Ok(Some(data)) => {
-            let content = match format {
-                "toml" => generate_toml(&data.crates, &data.settings.export_filename),
-                "json" => generate_json(&data.crates),
-                _ => generate_text(&data.crates),
+            let (content, filename) = match (export_type, format) {
+                ("dependency-graph", "toml") => (generate_dependency_graph_toml(&data.crates), "dependency-graph.toml".to_string()),
+                ("dependency-graph", "json") => (generate_dependency_graph_json(&data.crates), "dependency-graph.json".to_string()),
+                ("dependency-graph", "dot") => (generate_dependency_graph_dot(&data.crates), "dependency-graph.dot".to_string()),
+                ("crates", "toml") => (generate_toml(&data.crates, &data.settings.export_filename), data.settings.export_filename.clone()),
+                ("crates", "json") => (generate_json(&data.crates), "crates.json".to_string()),
+                ("crates", _) => (generate_text(&data.crates), "crates.txt".to_string()),
+                _ => (generate_toml(&data.crates, &data.settings.export_filename), data.settings.export_filename.clone()),
             };
-            let filename = data.settings.export_filename.clone();
             download_file(&content, &filename).await;
-            send_resp(serde_json::json!({ "success": true, "filename": filename, "count": data.crates.len() }));
+            send_resp(serde_json::json!({ "success": true, "filename": filename, "count": data.crates.len(), "exportType": export_type }));
         }
         Ok(None) => send_resp(serde_json::json!({ "success": false, "error": "No crates to export" })),
         Err(e) => send_resp(serde_json::json!({ "success": false, "error": e.to_string() })),
@@ -1115,19 +1514,33 @@ async fn inject_content_script_into_tab(tab_id: i32) {
 }
 
 async fn save_crate_to_storage(crate_info: CrateInfo) -> serde_json::Value {
+    // Fetch enhanced metadata from crates.io API
+    let enhanced_crate = match fetch_crate_metadata(&crate_info.name, Some(&crate_info.version)).await {
+        Ok(mut enhanced) => {
+            // Preserve the original timestamp and URL from content script
+            enhanced.timestamp = crate_info.timestamp.clone();
+            enhanced.url = crate_info.url.clone();
+            enhanced
+        }
+        Err(e) => {
+            log!("API fetch failed, using basic info: {}", e);
+            crate_info
+        }
+    };
+    
     match storage::get::<SavedCratesData>(STORAGE_KEY).await {
         Ok(Some(mut data)) => {
-            let existing_index = data.crates.iter().position(|c| c.dedup_key() == crate_info.dedup_key());
+            let existing_index = data.crates.iter().position(|c| c.dedup_key() == enhanced_crate.dedup_key());
             
             if let Some(idx) = existing_index {
                 data.crates[idx] = CrateInfo {
                     timestamp: chrono::Utc::now().to_rfc3339(),
-                    ..crate_info.clone()
+                    ..enhanced_crate.clone()
                 };
             } else {
                 data.crates.push(CrateInfo {
                     timestamp: chrono::Utc::now().to_rfc3339(),
-                    ..crate_info.clone()
+                    ..enhanced_crate.clone()
                 });
             }
 
@@ -1152,14 +1565,14 @@ async fn save_crate_to_storage(crate_info: CrateInfo) -> serde_json::Value {
                 "success": true,
                 "action": if existing_index.is_some() { "updated" } else { "added" },
                 "count": data.crates.len(),
-                "crate": crate_info
+                "crate": enhanced_crate
             })
         }
         Ok(None) => {
             let data = SavedCratesData {
                 crates: vec![CrateInfo {
                     timestamp: chrono::Utc::now().to_rfc3339(),
-                    ..crate_info.clone()
+                    ..enhanced_crate.clone()
                 }],
                 settings: Settings::default(),
             };
@@ -1183,7 +1596,7 @@ async fn save_crate_to_storage(crate_info: CrateInfo) -> serde_json::Value {
                 "success": true,
                 "action": "added",
                 "count": 1,
-                "crate": crate_info
+                "crate": enhanced_crate
             })
         }
         Err(e) => {
@@ -1257,44 +1670,60 @@ fn extract_crate_info() -> Option<CrateInfo> {
     let window = window()?;
     let url = window.location().href().ok()?;
     
+    // Extract crate name from URL
     let crate_name = url.split("crates.io/crates/").nth(1)?.split('/').next()?;
     if crate_name.is_empty() {
         return None;
     }
-
+    
+    // Smart version detection from URL
+    let version_from_url = extract_version_from_url(&url);
+    
+    // For now, return basic info and let background fetch full metadata via API
+    // This avoids CORS issues in content script
     let document = window.document()?;
     
-    let version = document.query_selector(".version").ok()??.text_content()
-        .or_else(|| document.query_selector("[data-testid=\"version\"]").ok()??.text_content())
-        .or_else(|| document.query_selector(".details .version").ok()??.text_content())
-        .unwrap_or_else(|| "unknown".to_string())
-        .trim()
-        .trim_start_matches('v')
-        .to_string();
-
-    let description = document.query_selector(".description").ok()??.text_content()
-        .or_else(|| document.query_selector("[data-testid=\"description\"]").ok()??.text_content())
-        .or_else(|| document.query_selector(".crate-info p").ok()??.text_content())
+    let version = version_from_url.unwrap_or_else(|| {
+        // Extract version from DOM without using ? operator in closure
+        let version_opt = document.query_selector(".version").ok().flatten()
+            .and_then(|el| el.text_content())
+            .or_else(|| document.query_selector("[data-testid=\"version\"]").ok().flatten().and_then(|el| el.text_content()))
+            .or_else(|| document.query_selector(".details .version").ok().flatten().and_then(|el| el.text_content()));
+        
+        version_opt.unwrap_or_else(|| "unknown".to_string())
+            .trim()
+            .trim_start_matches('v')
+            .to_string()
+    });
+    
+    let description = document.query_selector(".description").ok().flatten()
+        .and_then(|el| el.text_content())
+        .or_else(|| document.query_selector("[data-testid=\"description\"]").ok().flatten().and_then(|el| el.text_content()))
+        .or_else(|| document.query_selector(".crate-info p").ok().flatten().and_then(|el| el.text_content()))
         .unwrap_or_default()
         .trim()
         .to_string();
-
-    let dependencies = document.query_selector("[href=\"#dependencies\"]").ok()??.text_content()
-        .or_else(|| document.query_selector(".dependencies").ok()??.text_content())
+    
+    let dependencies = document.query_selector("[href=\"#dependencies\"]").ok().flatten()
+        .and_then(|el| el.text_content())
+        .or_else(|| document.query_selector(".dependencies").ok().flatten().and_then(|el| el.text_content()))
         .and_then(|t| {
-            let re = Regex::new(r"(\d+)").ok()?;
-            re.captures(&t).and_then(|c| c.get(1)).map(|m| m.as_str().to_string())
+            Regex::new(r"(\d+)").ok().and_then(|re| {
+                re.captures(&t).and_then(|c| c.get(1)).map(|m| m.as_str().to_string())
+            })
         })
         .unwrap_or_else(|| "0".to_string());
-
-    let updated = document.query_selector(".last-updated").ok()??.text_content()
-        .or_else(|| document.query_selector("[title*=\"Updated\"]").ok()??.get_attribute("title"))
+    
+    let updated = document.query_selector(".last-updated").ok().flatten()
+        .and_then(|el| el.text_content())
+        .or_else(|| document.query_selector("[title*=\"Updated\"]").ok().flatten().and_then(|el| el.get_attribute("title")))
         .and_then(|t| {
-            let re = Regex::new(r"\d{4}-\d{2}-\d{2}").ok()?;
-            re.find(&t).map(|m| m.as_str().to_string())
+            Regex::new(r"\d{4}-\d{2}-\d{2}").ok().and_then(|re| {
+                re.find(&t).map(|m| m.as_str().to_string())
+            })
         })
         .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
-
+    
     Some(CrateInfo {
         name: crate_name.to_string(),
         version,
@@ -1303,6 +1732,18 @@ fn extract_crate_info() -> Option<CrateInfo> {
         updated,
         url,
         timestamp: chrono::Utc::now().to_rfc3339(),
+        repository: None,
+        documentation: None,
+        homepage: None,
+        license: None,
+        downloads: None,
+        recent_downloads: None,
+        categories: vec![],
+        keywords: vec![],
+        rust_version: None,
+        edition: None,
+        crate_size: None,
+        dependency_graph: None,
     })
 }
 
