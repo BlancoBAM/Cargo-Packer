@@ -18,7 +18,7 @@
 [![Oxichrome](https://img.shields.io/badge/Oxichrome-0.2-4a4a4a?logo=rust)](https://oxichrome.dev)
 [![Leptos](https://img.shields.io/badge/Leptos-0.8-ff6b6b)](https://leptos.dev)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Crates.io](https://shieldcn.dev/crates/Cargo-Packer.svg?variant=outline&size=default&theme=orange&font=geist&labelGap=3)](https://crates.io/crates/Cargo-Packer)
+[![Crates.io](https://img.shields.io/crates/v/Cargo-Packer?logo=rust&color=orange)](https://crates.io/crates/Cargo-Packer)
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/Q3Z12B3RSC)
 
 > **Save crates.io pages to local Cargo.toml files** — A modern, cross-browser extension built with Rust/WASM via Oxichrome. Features live TOML preview, File System Access API export, deduplication, and MV3 compliance.
@@ -33,9 +33,12 @@ Cargo Packer is a **cross-browser (Firefox + Chromium) extension** that lets you
 |---------|-------------|
 | **One-click saving** | Save any crate from crates.io with a single click |
 | **Smart deduplication** | Automatic `name@version` deduplication |
+| **Smart version detection** | Detects specific versions from URL (e.g., `/crates/serde/1.0.0`) |
 | **Live TOML preview** | Real-time Cargo.toml preview with carousel pagination |
 | **File System Access API** | Native file picker for export (with downloads fallback) |
 | **Multiple formats** | Export as TOML, JSON, or plain text |
+| **Dependency graph export** | Export dependency graphs as TOML, JSON, or GraphViz DOT |
+| **crates.io API integration** | Enriches crate data with repo, downloads, license, categories, etc. |
 | **Permission toggles** | Optional permissions for downloads & scripting with live status |
 | **Content script injection** | Auto-injects on crates.io crate pages |
 | **Cross-browser MV3** | Native Firefox and Chrome/Chromium support |
@@ -130,6 +133,7 @@ Cargo Packer
 - **wasm-bindgen** — JS/WASM interop
 - **serde + chrono** — Serialization & timestamps
 - **regex** — DOM parsing in content script
+- **gloo-net** — WASM-compatible HTTP client for crates.io API
 
 ---
 
@@ -158,10 +162,10 @@ wasm-opt -Oz dist/chromium/wasm/cargo_packer_v2_bg.wasm -o dist/chromium/wasm/ca
 
 ## Roadmap
 
-- [ ] **Crate version selector** — Save specific versions, not just latest
-- [ ] **Dependency graph export** — Generate `cargo tree` output
+- [x] **Smart version detection** — Detect specific crate versions from URL
+- [x] **Dependency graph export** — Generate TOML, JSON, and DOT (GraphViz) formats
 - [ ] **Batch import/export** — JSON backup & restore
-- [ ] **crates.io API integration** — Fetch metadata without DOM scraping
+- [x] **crates.io API integration** — Fetch metadata without DOM scraping
 - [ ] **Workspace support** — Multi-crate `Cargo.toml` with `[workspace]`
 - [ ] **GitHub/GitLab integration** — Save from repo Cargo.toml files
 - [ ] **Publish to AMO / Chrome Web Store** — Official distribution
