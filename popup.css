@@ -1,0 +1,356 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    width: 340px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a1a;
+    color: #e1e1e1;
+    padding: 16px;
+}
+
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* ---------- Page switching ---------- */
+.page {
+    display: none;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.page.active {
+    display: flex;
+}
+
+/* ---------- Header ---------- */
+.header {
+    text-align: center;
+    border-bottom: 1px solid #333;
+    padding-bottom: 12px;
+}
+
+.header h1 {
+    font-size: 18px;
+    color: #f74c00;
+    margin-bottom: 4px;
+}
+
+.header .subtitle {
+    font-size: 12px;
+    color: #888;
+}
+
+/* ---------- Crate info ---------- */
+.crate-info {
+    background: #252525;
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid #333;
+}
+
+.crate-info h3 {
+    color: #f74c00;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.crate-info.crate-saved {
+    border-color: #4caf50;
+}
+
+.crate-details {
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.crate-details strong {
+    color: #fff;
+}
+
+.saved-badge {
+    display: none;
+    margin-top: 10px;
+    padding: 5px 8px;
+    background: #1b5e20;
+    color: #a5d6a7;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+}
+
+.saved-badge.visible {
+    display: block;
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+    background: #f74c00;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: background 0.2s;
+    text-align: center;
+    width: 100%;
+}
+
+.btn:hover:not(:disabled) {
+    background: #e64500;
+}
+
+.btn:active:not(:disabled) {
+    background: #d43d00;
+}
+
+.btn.secondary {
+    background: #333;
+    color: #e1e1e1;
+}
+
+.btn.secondary:hover:not(:disabled) {
+    background: #444;
+}
+
+.btn.danger {
+    background: #3d1a1a;
+    color: #ef5350;
+}
+
+.btn.danger:hover:not(:disabled) {
+    background: #5c1a1a;
+}
+
+.btn:disabled {
+    background: #666;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.button-group {
+    display: flex;
+    gap: 8px;
+}
+
+.button-group .btn {
+    flex: 1;
+}
+
+/* ---------- Settings ---------- */
+.settings {
+    background: #252525;
+    border-radius: 8px;
+    padding: 12px;
+    border: 1px solid #333;
+}
+
+.settings h3 {
+    color: #f74c00;
+    margin-bottom: 12px;
+    font-size: 14px;
+}
+
+.setting-item {
+    margin-bottom: 12px;
+}
+
+.setting-item:last-child {
+    margin-bottom: 0;
+}
+
+.setting-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+.setting-label span {
+    font-size: 13px;
+}
+
+.setting-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: #f74c00;
+    cursor: pointer;
+}
+
+select {
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 4px;
+    border: 1px solid #444;
+    background: #1a1a1a;
+    color: #e1e1e1;
+    font-size: 13px;
+}
+
+select:focus {
+    outline: none;
+    border-color: #f74c00;
+}
+
+/* ---------- Stats ---------- */
+.stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #888;
+}
+
+/* ---------- Status ---------- */
+.status {
+    font-size: 12px;
+    text-align: center;
+    padding: 8px;
+    border-radius: 4px;
+    background: #252525;
+    border: 1px solid #333;
+    min-height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.status.success {
+    color: #4CAF50;
+    border-color: #4CAF50;
+}
+
+.status.error {
+    color: #f44336;
+    border-color: #f44336;
+}
+
+/* ---------- Pagination ---------- */
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    border-top: 1px solid #333;
+    padding-top: 12px;
+}
+
+.nav-arrow {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: #333;
+    color: #aaa;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.nav-arrow:hover:not(:disabled) {
+    background: #f74c00;
+    color: white;
+}
+
+.nav-arrow:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.page-dots {
+    display: flex;
+    gap: 6px;
+}
+
+.dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #444;
+    transition: all 0.2s;
+    cursor: pointer;
+}
+
+.dot.active {
+    background: #f74c00;
+    transform: scale(1.25);
+}
+
+/* ---------- Page 2: file preview ---------- */
+.preview-file {
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.preview-file-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #2d2d2d;
+    border-bottom: 1px solid #3d3d3d;
+}
+
+.preview-dots {
+    display: flex;
+    gap: 5px;
+}
+
+.preview-dots i {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.preview-dots i:nth-child(1) { background: #ff5f56; }
+.preview-dots i:nth-child(2) { background: #ffbd2e; }
+.preview-dots i:nth-child(3) { background: #27ca4f; }
+
+.preview-filename {
+    flex: 1;
+    font-size: 11px;
+    color: #aaa;
+    font-family: monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.preview-lines {
+    font-size: 10px;
+    color: #666;
+    white-space: nowrap;
+}
+
+.preview-content {
+    margin: 0;
+    padding: 12px;
+    max-height: 300px;
+    min-height: 140px;
+    overflow: auto;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: #d4d4d4;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.preview-actions .btn {
+    width: 100%;
+}

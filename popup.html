@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Crates Packer</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+
+    <!-- ===================== Page 1: Main ===================== -->
+    <div class="page page1 active" id="page1">
+      <div class="header">
+        <h1>🦀 Crates Packer</h1>
+        <div class="subtitle">Save Rust crates to your local collection</div>
+      </div>
+
+      <div class="crate-info" id="crateInfo">
+        <h3>Current Crate</h3>
+        <div class="crate-details" id="crateDetails">
+          Not on a crate page. Visit crates.io/crates/* to save.
+        </div>
+        <div class="saved-badge" id="savedBadge">✓ Already saved</div>
+      </div>
+
+      <button class="btn" id="saveBtn" disabled>Save Current Crate</button>
+
+      <div class="settings">
+        <h3>Settings</h3>
+
+        <div class="setting-item">
+          <div class="setting-label">
+            <span>Auto-save new crates</span>
+            <input type="checkbox" id="autoSave">
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-label">
+            <span>Export format</span>
+          </div>
+          <select id="exportFormat">
+            <option value="toml">TOML (Cargo.toml style)</option>
+            <option value="json">JSON</option>
+            <option value="text">Plain Text</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="button-group">
+        <button class="btn secondary" id="exportBtn">Export / Download</button>
+        <button class="btn secondary" id="clearBtn">Clear All</button>
+      </div>
+
+      <div class="stats">
+        <span>Saved: <span id="savedCount">0</span> crates</span>
+        <span>Last: <span id="lastSaved">Never</span></span>
+      </div>
+
+      <div class="status" id="status">Ready</div>
+    </div>
+
+    <!-- ===================== Page 2: File Preview ===================== -->
+    <div class="page page2" id="page2">
+      <div class="header">
+        <h1>File Preview</h1>
+        <div class="subtitle" id="previewSubtitle">This is exactly what will be downloaded.</div>
+      </div>
+
+      <div class="preview-file">
+        <div class="preview-file-bar">
+          <span class="preview-dots"><i></i><i></i><i></i></span>
+          <span class="preview-filename" id="previewFilename">Cargo.toml</span>
+          <span class="preview-lines" id="previewLines">0 lines</span>
+        </div>
+        <pre class="preview-content" id="previewContent">No crates saved yet.</pre>
+      </div>
+
+      <div class="preview-actions">
+        <button class="btn" id="downloadBtn">Download Now</button>
+      </div>
+
+      <div class="status" id="status2">Ready</div>
+    </div>
+
+    <!-- ===================== Shared pagination ===================== -->
+    <div class="pagination">
+      <button class="nav-arrow" id="prevBtn" disabled>‹</button>
+      <span class="page-dots">
+        <span class="dot active" data-page="0" title="Main"></span>
+        <span class="dot" data-page="1" title="Preview"></span>
+      </span>
+      <button class="nav-arrow" id="nextBtn">›</button>
+    </div>
+
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
