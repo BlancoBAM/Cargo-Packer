@@ -24,6 +24,8 @@ gloo-timers = "0.2"
 gloo-net = "0.1"
 regex = "1"
 
+[build-dependencies]
+
 [profile.release]
 lto = true
 opt-level = "z"

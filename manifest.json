@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Crates Packer",
+  "version": "1.0.0",
+  "description": "Save crates.io pages to local Cargo.toml files",
+  "permissions": [
+    "activeTab",
+    "downloads",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://crates.io/*",
+    "https://crates.io/api/v1/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/panel-icon.png",
+      "48": "icons/panel-icon.png",
+      "128": "icons/panel-icon.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://crates.io/crates/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["wasm/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "crates-packer@oxichrome.dev"
+    }
+  }
+}

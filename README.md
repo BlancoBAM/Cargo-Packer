@@ -77,6 +77,11 @@ Cargo Packer is a **cross-browser (Firefox + Chromium) extension** that lets you
 rustup target add wasm32-unknown-unknown
 cargo install cargo-oxichrome
 
+# wasm-opt (Binaryen) — required for the release WASM optimization step
+#   macOS:   brew install binaryen
+#   Ubuntu:  apt-get install binaryen  (or build from https://github.com/WebAssembly/binaryen)
+#   The build script skips optimization gracefully if wasm-opt is not on PATH.
+
 # Build
 git clone https://github.com/BlancoBAM/Cargo-Packer.git
 cd Cargo-Packer
